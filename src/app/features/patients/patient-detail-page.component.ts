@@ -1,0 +1,27 @@
+import { DatePipe, isPlatformBrowser } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
+import { ChangeDetectionStrategy, Component, PLATFORM_ID, effect, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { map } from 'rxjs';
+import { TenantContextService } from '../../core/tenant/tenant-context.service';
+import { PatientApiService } from './patient-api.service';
+import type { PatientRecord, UpdatePatientInput } from './patient-api.service';
+import { PatientOdontogramComponent } from './patient-odontogram.component';
+import { ClinicalRecordsComponent } from './clinical-records.component';
+import { PatientClinicalHistoryComponent } from './patient-clinical-history.component';
+
+@Component({selector:'app-patient-detail-page',imports:[FormsModule,DatePipe,RouterLink,PatientOdontogramComponent,ClinicalRecordsComponent,PatientClinicalHistoryComponent],changeDetection:ChangeDetectionStrategy.OnPush,templateUrl:'./patient-detail-page.component.html',styleUrl:'./patient-detail-page.component.css'})
+export class PatientDetailPageComponent {
+ readonly tenant=inject(TenantContextService); private readonly api=inject(PatientApiService); private readonly platformId=inject(PLATFORM_ID); private readonly route=inject(ActivatedRoute);
+ readonly patientId=toSignal(this.route.paramMap.pipe(map(p=>p.get('patientId'))),{initialValue:null});
+ readonly patient=signal<PatientRecord|null>(null); readonly loading=signal(false); readonly saving=signal(false); readonly error=signal(''); readonly success=signal(''); readonly editing=signal(false); readonly conflict=signal(false);
+ firstName='';lastName='';birthDate='';gender:''|'M'|'F'|'OTHER'='';phone='';email='';address='';city='';notes='';
+ private sequence=0;
+ constructor(){effect(()=>{const c=this.tenant.activeClinic(),id=this.patientId();if(!isPlatformBrowser(this.platformId))return;if(c&&id){void this.loadPatient(c.organizationId,c.id,id);return;}this.sequence++;this.patient.set(null);this.loading.set(false);this.saving.set(false);this.editing.set(false);this.error.set('');this.success.set('');});}
+ async loadPatient(organizationId?:string,clinicId?:string,patientId=this.patientId()??''):Promise<void>{const c=this.tenant.activeClinic(),org=organizationId??c?.organizationId,cid=clinicId??c?.id;if(!org||!cid||!patientId)return;const seq=++this.sequence;this.patient.set(null);this.loading.set(true);this.saving.set(false);this.error.set('');this.success.set('');this.editing.set(false);this.conflict.set(false);try{const p=await this.api.get(org,cid,patientId);if(seq!==this.sequence)return;this.patient.set(p);this.firstName=p.firstName;this.lastName=p.lastName;this.birthDate=p.birthDate?.slice(0,10)??'';this.gender=p.gender??'';this.phone=p.phone??'';this.email=p.email??'';this.address=p.address??'';this.city=p.city??'';this.notes=p.notes??'';}catch(e){if(seq!==this.sequence)return;this.patient.set(null);this.error.set(e instanceof HttpErrorResponse&&e.status===404?'Ce dossier n’existe pas dans la clinique active ou vous n’y avez pas accès.':e instanceof HttpErrorResponse&&e.status===401?'Votre session a expiré. Reconnectez-vous.':'Le dossier ne peut pas être chargé. Vérifiez votre connexion puis réessayez.');}finally{if(seq===this.sequence)this.loading.set(false);}}
+ async save():Promise<void>{const c=this.tenant.activeClinic(),p=this.patient();if(!c||!p||this.saving())return;const seq=this.sequence;this.saving.set(true);this.error.set('');this.success.set('');const input:UpdatePatientInput={firstName:this.firstName.trim(),lastName:this.lastName.trim(),birthDate:this.birthDate||null,gender:this.gender||null,phone:this.phone.trim()||null,email:this.email.trim().toLowerCase()||null,address:this.address.trim()||null,city:this.city.trim()||null,notes:this.notes.trim()||null,expectedUpdatedAt:p.updatedAt};try{const saved=await this.api.update(c.organizationId,c.id,p.id,input);if(seq!==this.sequence||this.tenant.activeClinic()?.id!==c.id)return;this.patient.set(saved);this.editing.set(false);this.success.set('Les modifications ont été enregistrées.');}catch(e){if(seq!==this.sequence)return;if(e instanceof HttpErrorResponse&&e.status===409){this.conflict.set(true);this.error.set('Ce dossier a été modifié dans une autre session. Rechargez la dernière version avant de réessayer.');}else if(e instanceof HttpErrorResponse&&e.status===403)this.error.set('Votre rôle ne permet pas de modifier ce dossier patient.');else this.error.set('Les modifications n’ont pas été enregistrées.');}finally{if(seq===this.sequence)this.saving.set(false);}}
+ cancelEdit(){this.editing.set(false);const p=this.patient();if(!p)return;this.firstName=p.firstName;this.lastName=p.lastName;this.birthDate=p.birthDate?.slice(0,10)??'';this.gender=p.gender??'';this.phone=p.phone??'';this.email=p.email??'';this.address=p.address??'';this.city=p.city??'';this.notes=p.notes??'';this.error.set('');}
+ formatBirthDate(value:string|null){if(!value)return 'Non renseignée';const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(value);return m?`${m[3]}/${m[2]}/${m[1]}`:value;}
+}

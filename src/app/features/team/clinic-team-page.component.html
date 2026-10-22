@@ -1,0 +1,86 @@
+<section class="team-page" aria-labelledby="team-title">
+  <header class="page-heading"><div><p class="eyebrow">ORGANISATION DU CABINET</p><h1 id="team-title">Équipe et accès</h1><p>Attribuez les rôles de clinique aux comptes déjà membres de votre organisation. Les droits organisationnels restent gérés à leur niveau.</p></div></header>
+
+  @if (error()) { <p class="feedback error" role="alert">{{error()}} <button type="button" (click)="load()">Réessayer</button></p> }
+  @if (success()) { <p class="feedback success" role="status">{{success()}}</p> }
+
+  @if (canManage()) {
+    <section class="invite-card" aria-labelledby="add-member-title">
+      <div><h2 id="add-member-title">Donner accès à cette clinique</h2><p>Seuls les membres déjà présents dans l’organisation peuvent être affectés ici.</p></div>
+      @if (availableMembers.length) {
+        <form class="add-form" (ngSubmit)="addMember()">
+          <div class="field"><label for="team-member">Membre de l’organisation</label><select id="team-member" name="member" [(ngModel)]="addUserId" required><option value="">Choisir un membre</option>@for (member of availableMembers; track member.userId) { <option [value]="member.userId">{{member.name}} · {{member.email}}</option> }</select></div>
+          <div class="field"><label for="team-role">Rôle dans la clinique</label><select id="team-role" name="role" [(ngModel)]="newRole">@for (role of roleOptions; track role.value) { <option [value]="role.value">{{role.label}}</option> }</select></div>
+          <button type="submit" [disabled]="saving() || !addUserId">{{saving() ? 'Attribution…' : 'Attribuer l’accès'}}</button>
+        </form>
+      } @else { <p class="empty-note">Tous les membres de l’organisation ont déjà un accès à cette clinique, ou aucun autre membre n’est disponible.</p> }
+    </section>
+  }
+
+
+
+  @if (canManageOrganization()) {
+    <section class="invite-card organization-invitation-card" aria-labelledby="invitation-title">
+      <div><h2 id="invitation-title">Inviter un membre</h2><p>Créez un lien sécurisé à transmettre à la personne. Il est utilisable une seule fois et expire après sept jours.</p></div>
+      <form class="invitation-form" (ngSubmit)="createInvitation()">
+        <div class="field"><label for="invitation-email">Adresse e-mail</label><input id="invitation-email" name="invitationEmail" type="email" [(ngModel)]="invitationEmail" autocomplete="email" placeholder="nom@cabinet.ma" required maxlength="254"></div>
+        <div class="field"><label for="invitation-role">Rôle dans l’organisation</label><select id="invitation-role" name="invitationRole" [(ngModel)]="invitationRole">@for(role of invitationRoleOptions;track role.value){<option [value]="role.value">{{role.label}}</option>}</select></div>
+        @if(invitationRole !== 'ORGANIZATION_ADMIN'){
+          <div class="field clinic-scope-field"><label for="invitation-clinics">Cliniques accessibles</label><select id="invitation-clinics" name="invitationClinics" multiple [(ngModel)]="invitationClinicIds" size="3" required>@for(clinic of invitableClinics;track clinic.id){<option [value]="clinic.id">{{clinic.name}}</option>}</select><small>Maintenez Ctrl ou Cmd pour sélectionner plusieurs cliniques.</small></div>
+        }
+        <button type="submit" [disabled]="invitationSaving() || !invitationEmail.trim() || (invitationRole !== 'ORGANIZATION_ADMIN' && !invitationClinicIds.length)">{{invitationSaving() ? 'Création…' : 'Créer l’invitation'}}</button>
+      </form>
+      @if(createdInvitationUrl){
+        <div class="created-invitation" aria-live="polite"><label for="created-invitation-link">Lien d’invitation — à copier maintenant</label><div><input id="created-invitation-link" type="text" [value]="createdInvitationUrl" readonly><button type="button" (click)="copyInvitationLink()">Copier le lien</button></div><p>Ce lien ne sera plus affiché après avoir quitté cette page. Il ne donne accès qu’après connexion avec l’adresse invitée.</p></div>
+      }
+      <div class="invitation-list-heading"><h3>Invitations récentes</h3><button type="button" class="refresh-button" (click)="loadInvitations()" [disabled]="invitationSaving()">Actualiser</button></div>
+      @if(!invitations().length){<p class="empty-note">Aucune invitation enregistrée.</p>}
+      @else {<div class="invitation-list">@for(invitation of invitations();track invitation.id){<div class="invitation-row"><div class="invitation-person"><strong>{{invitation.email}}</strong><span>{{roleLabel(invitation.role)}} · expire le {{dateLabel(invitation.expiresAt)}}</span></div><span class="invitation-status" [attr.data-status]="invitation.status">{{invitationStatusLabel(invitation.status)}}</span>@if(invitation.status === 'PENDING'){<button class="remove-button" type="button" (click)="revokeInvitation(invitation)" [disabled]="invitationSaving()">Révoquer</button>}</div>}</div>}
+    </section>
+  }
+
+  <section class="members-card organization-members-card" aria-labelledby="organization-members-title">
+    <div class="card-heading"><div><h2 id="organization-members-title">Accès à l’organisation</h2><p>{{organizationMembers().length}} membre(s) · les changements ici s’appliquent à toutes les cliniques de cette organisation</p></div><button type="button" class="refresh-button" (click)="loadOrganizationTeam()" [disabled]="loading()">{{loading() ? 'Actualisation…' : 'Actualiser'}}</button></div>
+    @if (!organizationMembers().length) { <p class="empty-note">Aucun membre disponible ou impossible de charger l’organisation.</p> }
+    @else {
+      <div class="table-scroll"><table><thead><tr><th scope="col">Membre</th><th scope="col">Rôle organisationnel</th><th scope="col">Cliniques accessibles</th>@if(canManageOrganization()){<th scope="col">Actions</th>}</tr></thead><tbody>
+        @for (member of organizationMembers(); track member.userId) {
+          <tr>
+            <td><div class="member-identity"><span class="avatar" aria-hidden="true">{{member.name.trim().charAt(0).toUpperCase() || 'M'}}</span><span><strong>{{member.name}}</strong><small>{{member.email}}</small></span></div></td>
+            <td>
+              @if (canEditOrganizationMember(member)) {
+                <div class="role-editor"><select [name]="'org-role-' + member.userId" [(ngModel)]="organizationRoleDrafts[member.userId]" [attr.aria-label]="'Rôle organisationnel de ' + member.name">@for(role of availableOrganizationRoles(member); track role.value){<option [value]="role.value">{{role.label}}</option>}</select><button type="button" (click)="saveOrganizationRole(member)" [disabled]="saving() || organizationRoleDrafts[member.userId] === member.role">Enregistrer</button></div>
+              } @else { <span class="role-pill">{{roleLabel(member.role)}}</span> }
+            </td>
+            <td><div class="clinic-chips">@for(clinic of member.clinics;track clinic.id){<span class="clinic-chip">{{clinic.name}} <small>{{roleLabel(clinic.role)}}</small></span>} @if(!member.clinics.length){<span class="muted">Aucune clinique attribuée</span>}</div></td>
+            @if(canManageOrganization()){<td>@if(canEditOrganizationMember(member)){<button class="remove-button" type="button" (click)="removeOrganizationMember(member)" [disabled]="saving()">Retirer de l’organisation</button>} @else {<span class="muted">{{member.isCurrentUser ? 'Votre compte' : 'Rôle protégé'}}</span>}</td>}
+          </tr>
+        }
+      </tbody></table></div>
+    }
+    <p class="scope-note">Les rôles organisationnels s’appliquent à l’ensemble de l’organisation. Seul un propriétaire peut attribuer ou retirer les rôles de propriétaire et d’administrateur organisationnel. Le dernier propriétaire est protégé.</p>
+  </section>
+
+  <section class="members-card" aria-labelledby="members-title">
+    <div class="card-heading"><div><h2 id="members-title">Membres de l’organisation</h2><p>{{members().length}} compte(s) · {{assignedCount}} avec accès à la clinique active</p></div><button type="button" class="refresh-button" (click)="load()" [disabled]="loading()">{{loading() ? 'Actualisation…' : 'Actualiser'}}</button></div>
+    @if (loading() && !members().length) { <p class="empty-note" role="status">Chargement de l’équipe…</p> }
+    @else if (!members().length) { <p class="empty-note">Aucun membre disponible pour cette organisation.</p> }
+    @else {
+      <div class="table-scroll"><table><thead><tr><th scope="col">Membre</th><th scope="col">Rôle dans l’organisation</th><th scope="col">Accès à cette clinique</th>@if(canManage()){<th scope="col">Actions</th>}</tr></thead><tbody>
+        @for (member of members(); track member.userId) {
+          <tr>
+            <td><div class="member-identity"><span class="avatar" aria-hidden="true">{{member.name.trim().charAt(0).toUpperCase() || 'M'}}</span><span><strong>{{member.name}}</strong><small>{{member.email}}</small></span></div></td>
+            <td><span class="role-pill">{{roleLabel(member.organizationRole)}}</span></td>
+            <td>
+              @if (member.clinicRole && canManage() && !isOrganizationAdmin(member.organizationRole)) {
+                <div class="role-editor"><select [name]="'role-' + member.userId" [(ngModel)]="roleDrafts[member.userId]" [attr.aria-label]="'Rôle clinique de ' + member.name">@for(role of roleOptions;track role.value){<option [value]="role.value">{{role.label}}</option>}</select><button type="button" (click)="saveRole(member)" [disabled]="saving() || roleDrafts[member.userId] === member.clinicRole">Enregistrer</button></div>
+              } @else { <span class="clinic-role" [class.unassigned]="!member.clinicRole">{{roleLabel(member.clinicRole || (isOrganizationAdmin(member.organizationRole) ? member.organizationRole : null))}}</span> }
+            </td>
+            @if(canManage()){<td>@if(member.clinicRole && !isOrganizationAdmin(member.organizationRole)){<button class="remove-button" type="button" (click)="removeMember(member)" [disabled]="saving()">Retirer</button>} @else {<span class="muted">—</span>}</td>}
+          </tr>
+        }
+      </tbody></table></div>
+    }
+  </section>
+  <p class="scope-note">Retirer un accès ne supprime ni le compte du membre, ni son accès aux autres cliniques, ni son historique clinique. Les modifications d’accès sont journalisées.</p>
+</section>
